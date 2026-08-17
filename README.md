@@ -10,8 +10,12 @@ The study uses public NHANES and NHIS survey files with public-use mortality lin
 
 ```text
 code/
-  plot_result_figures.py       # Recreates the aggregate coverage and calibration figures
-  requirements.txt
+  care_state_model.py          # Domain-gated CARE-State model and early stopping
+  metrics.py                   # Survey-weighted evaluation metrics
+  calibration.py               # Validation-only logit calibration adapter
+  plot_result_figures.py       # Recreates aggregate coverage and calibration figures
+  smoke_test.py                # CPU smoke test on generated data
+  requirements.txt             # Runtime dependencies
 derived_results/
   domain_coverage.csv
   primary_calibration_bins.csv
@@ -24,12 +28,25 @@ EXPERIMENT_RESULTS.md          # Audited aggregate results and claim boundaries
 REPRODUCIBILITY_STATUS.md      # Exact scope of the released code
 ```
 
+## Reproduce the model smoke test
+
+The released model layer runs on harmonised inputs with one feature matrix and
+one availability mask per clinical domain, together with the outcome and
+survey weight. A small CPU test is included:
+
+```bash
+python -m pip install -r code/requirements.txt
+python code/smoke_test.py
+```
+
+The test uses generated data and does not claim to reproduce the reported
+NHANES/NHIS estimates.
+
 ## Reproduce aggregate figures
 
 The plotting layer uses only aggregate CSV files and does not download or reconstruct participant-level records.
 
 ```bash
-python -m pip install -r code/requirements.txt
 python code/plot_result_figures.py
 ```
 
@@ -45,6 +62,13 @@ latexmk -pdf -interaction=nonstopmode main.tex
 ## Data access
 
 All participant-level source files are public-use records maintained by the U.S. National Center for Health Statistics. The exact NHANES, NHIS, and public-use mortality-linkage URLs used by the manuscript are listed in the Data Availability Statement in `manuscript_digital_health/main.tex`.
+
+The original server-side source-data harmonisation pipeline and participant-
+level exports are not included. The repository therefore provides the
+complete CARE-State model/evaluation implementation for harmonised inputs and
+the exact aggregate-result and manuscript reproduction layer, while retaining
+the privacy and provenance boundary documented in
+`REPRODUCIBILITY_STATUS.md`.
 
 ## License
 
