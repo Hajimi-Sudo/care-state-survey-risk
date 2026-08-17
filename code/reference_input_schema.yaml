@@ -1,0 +1,25 @@
+# Reference input contract for the released CARE-State implementation.
+# This is a schema template, not the historical NHANES/NHIS variable map.
+version: reference-0.1
+domains:
+  demographic:
+    feature_columns: [demographic_feature_1, demographic_feature_2]
+    mask_column: mask_demographic
+  metabolic:
+    feature_columns: [metabolic_feature_1, metabolic_feature_2]
+    mask_column: mask_metabolic
+  cardiovascular:
+    feature_columns: [cardiovascular_feature_1, cardiovascular_feature_2]
+    mask_column: mask_cardiovascular
+  renal:
+    feature_columns: [renal_feature_1, renal_feature_2]
+    mask_column: mask_renal
+outcome_column: outcome_fixed_horizon
+weight_column: survey_design_weight
+split_column: split
+preprocessing:
+  fit_imputation_and_scaling_on: train_only
+  preserve_masks_as_model_inputs: true
+monotonic_signs:
+  # Optional; one -1/0/+1 sign per feature after the exact feature map is fixed.
+  source: external_feature_audit

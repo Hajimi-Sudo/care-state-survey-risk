@@ -78,16 +78,50 @@ def _weighted_bce(logits: Tensor, target: Tensor, weight: Tensor) -> Tensor:
     return (losses * normalized).mean()
 
 
+def _monotonic_penalty(model: CAREState, domains: Mapping[str, Tensor],
+                       masks: Mapping[str, Tensor], signs: Mapping[str, Tensor]) -> Tensor:
+    """Penalise violations of prespecified directional signs.
+
+    ``signs[name]`` has one value per input feature: ``+1`` means increasing
+    the feature should not decrease the logit, ``-1`` means the reverse, and
+    ``0`` leaves the feature unconstrained. This is a soft training penalty;
+    the exact signs and feature map must be supplied by the data audit.
+    """
+    if not signs:
+        return next(model.parameters()).new_zeros(())
+    tracked = {name: value.detach().clone().requires_grad_(True) for name, value in domains.items()}
+    logits = model(tracked, masks)
+    gradients = torch.autograd.grad(
+        logits.sum(), tuple(tracked.values()), create_graph=True, allow_unused=True
+    )
+    penalties = []
+    for (name, _), gradient in zip(tracked.items(), gradients):
+        if name not in signs or gradient is None:
+            continue
+        sign = torch.as_tensor(signs[name], dtype=gradient.dtype, device=gradient.device).reshape(1, -1)
+        if sign.shape[1] != gradient.shape[1]:
+            raise ValueError(f"monotonic sign count for {name} does not match its feature count")
+        active = sign.abs() > 0
+        if active.any():
+            violations = torch.relu(-gradient * sign).pow(2)
+            penalties.append(violations[:, active.squeeze(0)].mean())
+    return torch.stack(penalties).mean() if penalties else next(model.parameters()).new_zeros(())
+
+
 def fit_care_state(model: CAREState, train_domains: Mapping[str, Tensor],
                    train_masks: Mapping[str, Tensor], train_y: Tensor,
                    train_weight: Tensor, val_domains: Mapping[str, Tensor],
                    val_masks: Mapping[str, Tensor], val_y: Tensor,
                    val_weight: Tensor, *, max_epochs: int = 300,
                    patience: int = 30, learning_rate: float = 2e-3,
-                   weight_decay: float = 1e-4, seed: int = 2026) -> FitResult:
+                   weight_decay: float = 1e-4, seed: int = 2026,
+                   monotonic_signs: Mapping[str, Tensor] | None = None,
+                   monotonic_lambda: float = 0.0) -> FitResult:
     """Fit with weighted BCE and validation-only early stopping."""
     if patience < 1 or max_epochs < patience:
         raise ValueError("max_epochs must be at least patience and patience must be positive")
+    if monotonic_lambda < 0:
+        raise ValueError("monotonic_lambda must be non-negative")
     torch.manual_seed(seed)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     best_state, best_val, best_epoch, stale = None, float("inf"), 0, 0
@@ -96,6 +130,10 @@ def fit_care_state(model: CAREState, train_domains: Mapping[str, Tensor],
         model.train()
         optimizer.zero_grad(set_to_none=True)
         train_loss = _weighted_bce(model(train_domains, train_masks), train_y, train_weight)
+        if monotonic_signs and monotonic_lambda > 0:
+            train_loss = train_loss + monotonic_lambda * _monotonic_penalty(
+                model, train_domains, train_masks, monotonic_signs
+            )
         train_loss.backward()
         optimizer.step()
         model.eval()
@@ -123,4 +161,5 @@ def state_config(model: CAREState) -> dict:
         "domain_names": list(model.domain_names),
         "hidden_dim": model.encoders[model.domain_names[0]][0].out_features,
         "state_dim": model.state[0].out_features,
+        "supports_monotonic_penalty": True,
     }
